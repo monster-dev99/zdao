@@ -9,10 +9,8 @@ import { useVoting } from "./useVoting"
 export type { Proposal } from "./web3State"
 
 export function useWeb3() {
-  // Wallet management
   const wallet = useWallet()
 
-  // FHE operations
   const {
     isInitialized: fheInitialized,
     isLoading: fheLoading,
@@ -31,13 +29,10 @@ export function useWeb3() {
     sdkAvailable: fheInitialized && !fheError
   }), [fheInitialized, fheLoading, fheError])
 
-  // Voting operations
   const voting = useVoting()
 
-  // Proposals management
   const proposals = useProposals()
 
-  // Create wrapper functions with proper dependencies
   const decryptVoteCounts = async (proposalId: number) => {
     return voting.decryptVoteCounts(proposalId, fheInitialized, fhePublicDecrypt, fhePublicDecryptMultiple)
   }
@@ -82,16 +77,13 @@ export function useWeb3() {
     )
   }
 
-  // Load proposals when FHE is initialized
   useEffect(() => {
     if (fheInitialized && wallet.isConnected && wallet.contract && proposals.proposals.length === 0) {
-      console.log('FHE initialized, loading proposals...')
       loadProposals()
     }
   }, [fheInitialized, wallet.isConnected, wallet.contract, proposals.proposals.length])
 
   return {
-    // Wallet state
     account: wallet.account,
     isConnected: wallet.isConnected,
     isConnecting: wallet.isConnecting,
@@ -99,20 +91,12 @@ export function useWeb3() {
     isCorrectNetwork: wallet.isCorrectNetwork,
     networkName: wallet.networkName,
     contract: wallet.contract,
-    
-    // Proposals state
     proposals: proposals.proposals,
     isLoading: proposals.isLoading,
-    
-    // FHE state
     fheStatus,
-    
-    // Wallet functions
     connectWallet: wallet.connectWallet,
     disconnectWallet: wallet.disconnectWallet,
     switchToSepolia: wallet.switchToSepolia,
-    
-    // Voting functions
     createProposal,
     vote,
     makeVoteCountsPublic,
@@ -122,8 +106,6 @@ export function useWeb3() {
     decryptVoteCounts,
     refreshProposals,
     isProposalOwner: voting.isProposalOwner,
-    
-    // FHE operations (backward compatibility)
     fheDecrypt: fhePublicDecrypt ? async (encryptedValue: any) => {
       const result = await fhePublicDecrypt(encryptedValue)
       return result.value

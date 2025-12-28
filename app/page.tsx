@@ -50,37 +50,26 @@ export default function HomePage() {
   const [creatingProposal, setCreatingProposal] = useState(false)
   const [proposalOwnership, setProposalOwnership] = useState<Record<number, boolean>>({})
   
-  // Prevent concurrent calls to checkVotingStatus
   const isCheckingVotesRef = useRef(false)
   const decryptingProposalsRef = useRef<Set<number>>(new Set())
 
-  // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
-  const [proposalsPerPage] = useState(3) // Show 3 proposals per page
+  const [proposalsPerPage] = useState(3)
 
-  // Check voting status and ownership for all proposals
   useEffect(() => {
     if (isConnected && proposals.length > 0 && fheStatus.initialized) {
-      // Only check for proposals we don't already have votes for
       const proposalsToCheck = proposals.filter(
         (proposal) => !userVotes.some((vote) => vote.proposalId === proposal.id),
       )
 
       if (proposalsToCheck.length > 0) {
-        console.log(
-          "Checking voting status for proposals:",
-          proposalsToCheck.map((p) => p.id),
-        )
         checkVotingStatus()
-      } else {
-        console.log("All proposals already have local vote data")
       }
 
       checkProposalOwnership()
     }
   }, [isConnected, proposals, fheStatus.initialized])
 
-  // Clear user votes and ownership when wallet disconnects
   useEffect(() => {
     if (!isConnected) {
       setUserVotes([])
@@ -89,14 +78,6 @@ export default function HomePage() {
     }
   }, [isConnected])
 
-  // Reload when account changes
-  useEffect(() => {
-    if (isConnected && account) {
-      console.log("Account connected:", account)
-    }
-  }, [account, isConnected])
-
-  // Reset pagination when proposals change
   useEffect(() => {
     setCurrentPage(1)
   }, [proposals.length])
@@ -110,20 +91,16 @@ export default function HomePage() {
           const isOwner = await isProposalOwner(proposal.id)
           ownership[proposal.id] = isOwner
         } catch (error) {
-          console.error(`Error checking ownership for proposal ${proposal.id}:`, error)
           ownership[proposal.id] = false
         }
       }
       setProposalOwnership(ownership)
     } catch (error) {
-      console.error("Error checking proposal ownership:", error)
     }
   }
 
   const checkVotingStatus = async () => {
-    // Prevent concurrent calls
     if (isCheckingVotesRef.current) {
-      console.log("checkVotingStatus already in progress, skipping...")
       return
     }
 
@@ -139,15 +116,11 @@ export default function HomePage() {
             votedProposals.push(proposal.id)
           }
         } catch (error) {
-          console.error(`Error checking vote status for proposal ${proposal.id}:`, error)
         }
       }
 
       if (votedProposals.length > 0) {
-        console.log("User has voted on proposals:", votedProposals)
-
         const existingVotes = userVotes.filter((vote) => votedProposals.includes(vote.proposalId))
-        // Filter out proposals that are already being decrypted or already have votes
         const newProposals = votedProposals.filter(
           (id) => 
             !userVotes.some((vote) => vote.proposalId === id) &&
@@ -157,29 +130,21 @@ export default function HomePage() {
         votes.push(...existingVotes)
 
         if (newProposals.length > 0) {
-          console.log(`🔓 Cần decrypt ${newProposals.length} proposal(s):`, newProposals)
-          console.log(`📊 Tổng số proposal đang decrypt: ${decryptingProposalsRef.current.size + newProposals.length}`)
-
-          // Mark proposals as being decrypted
           newProposals.forEach((id) => decryptingProposalsRef.current.add(id))
 
-          // Batch decrypt: Get all encrypted votes first, then decrypt all at once
           if (fheStatus.initialized && fheUserDecryptMultiple && newProposals.length > 0) {
             try {
-              // Get all encrypted votes in parallel
               const encryptedVotesPromises = newProposals.map(async (proposalId) => {
                 try {
                   const encryptedVote = await getMyVote(proposalId)
                   return { proposalId, encryptedVote }
                 } catch (error) {
-                  console.error(`Error getting vote for proposal ${proposalId}:`, error)
                   return { proposalId, encryptedVote: null, error }
                 }
               })
 
               const encryptedVotesResults = await Promise.all(encryptedVotesPromises)
 
-              // Filter out errors and prepare for batch decrypt
               const validEncryptedVotes = encryptedVotesResults.filter(
                 (result) => result.encryptedVote !== null && !result.error,
               ) as Array<{ proposalId: number; encryptedVote: string }>
@@ -188,7 +153,6 @@ export default function HomePage() {
                 (result) => result.encryptedVote === null || result.error,
               )
 
-              // Add error votes
               for (const errorProposal of errorProposals) {
                 votes.push({
                   proposalId: errorProposal.proposalId,
@@ -198,17 +162,12 @@ export default function HomePage() {
                 decryptingProposalsRef.current.delete(errorProposal.proposalId)
               }
 
-              // Batch decrypt all valid votes at once
               if (validEncryptedVotes.length > 0) {
                 const encryptedValues = validEncryptedVotes.map((v) => v.encryptedVote)
-                console.log(`🔓 Đang batch decrypt ${encryptedValues.length} vote(s)...`)
-                console.log(`📊 Tổng số proposal đang decrypt: ${decryptingProposalsRef.current.size}`)
 
                 try {
                   const decryptResult = await fheUserDecryptMultiple(encryptedValues)
-                  console.log(`✅ Batch decrypt thành công cho ${encryptedValues.length} vote(s)`)
 
-                  // Map decrypted values back to proposals
                   for (const { proposalId, encryptedVote } of validEncryptedVotes) {
                     const decryptedVote = decryptResult.clearValues[encryptedVote]
                     if (decryptedVote !== undefined) {
@@ -218,9 +177,7 @@ export default function HomePage() {
                         vote: voteValue,
                         votedAt: new Date(),
                       })
-                      console.log(`Added decrypted vote for proposal ${proposalId}:`, voteValue)
                     } else {
-                      console.error(`No decrypted value found for proposal ${proposalId}`)
                       votes.push({
                         proposalId: proposalId,
                         vote: "error",
@@ -230,24 +187,14 @@ export default function HomePage() {
                     decryptingProposalsRef.current.delete(proposalId)
                   }
                 } catch (decryptError: any) {
-                  console.error(`❌ Lỗi khi batch decrypt:`, decryptError)
-                  if (decryptError?.message?.includes('CORS') || decryptError?.message?.includes('cors')) {
-                    console.error(`⚠️ Lỗi CORS khi decrypt - có thể do relayer server không cho phép CORS từ domain này`)
-                  }
                   throw decryptError
                 }
               }
             } catch (error: any) {
-              console.error("❌ Error in batch decrypt:", error)
-              if (error?.message?.includes('CORS') || error?.message?.includes('cors')) {
-                console.error(`⚠️ Lỗi CORS khi batch decrypt`)
-              }
-              // Mark all remaining proposals as error
               const remainingProposals = newProposals.filter(
                 (id) => !votes.some((v) => v.proposalId === id)
               )
               
-              console.log(`❌ Không thể decrypt ${remainingProposals.length} proposal(s) - đánh dấu là lỗi`)
               for (const proposalId of remainingProposals) {
                 votes.push({
                   proposalId: proposalId,
@@ -258,9 +205,7 @@ export default function HomePage() {
               }
             }
           } else {
-            // FHE not initialized
             for (const proposalId of newProposals) {
-              console.log(`FHE not initialized, using placeholder for proposal ${proposalId}`)
               votes.push({
                 proposalId: proposalId,
                 vote: "unknown",
@@ -272,8 +217,6 @@ export default function HomePage() {
         }
       }
     } catch (error) {
-      console.error("Error in checkVotingStatus:", error)
-      // Clear decrypting flags on error
       decryptingProposalsRef.current.clear()
     } finally {
       isCheckingVotesRef.current = false
@@ -295,7 +238,6 @@ export default function HomePage() {
         description: "Your proposal has been successfully created on the blockchain.",
       })
     } catch (error) {
-      console.error("Error creating proposal:", error)
       toast({
         title: "Error",
         description: "Failed to create proposal. Please try again.",
@@ -310,8 +252,6 @@ export default function HomePage() {
     setVotingStates((prev) => ({ ...prev, [proposalId]: "Preparing..." }))
 
     try {
-      console.log("UI handleVote called:", { proposalId, voteValue, booleanValue: voteValue === "yes" })
-
       setVotingStates((prev) => ({ ...prev, [proposalId]: "Encrypting..." }))
 
       await vote(proposalId, voteValue === "yes")
@@ -327,8 +267,6 @@ export default function HomePage() {
       }
       setUserVotes((prev) => [...prev.filter((v) => v.proposalId !== proposalId), newVote])
 
-      console.log("Vote completed successfully:", { proposalId, voteValue })
-
       toast({
         title: "Vote Submitted",
         description: `Your ${voteValue} vote has been recorded on the blockchain.`,
@@ -336,7 +274,6 @@ export default function HomePage() {
 
       await refreshProposals()
     } catch (error) {
-      console.error("Error voting:", error)
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to submit vote. Please try again.",
@@ -355,7 +292,6 @@ export default function HomePage() {
         description: "Vote counts are now visible to everyone.",
       })
     } catch (error) {
-      console.error("Error making results public:", error)
       toast({
         title: "Error",
         description: "Failed to make results public. Please try again.",
@@ -380,10 +316,8 @@ export default function HomePage() {
         description: "Decrypting and updating vote counts...",
       })
       
-      // Decrypt và submit vote counts
       await decryptVoteCounts(proposalId)
       
-      // Reload proposals để lấy giá trị mới
       await refreshProposals()
       
       toast({
@@ -391,7 +325,6 @@ export default function HomePage() {
         description: "Vote counts have been updated.",
       })
     } catch (error: any) {
-      console.error("Error refreshing results:", error)
       toast({
         title: "Error",
         description: error?.message || "Failed to refresh results. Please try again.",
@@ -400,7 +333,6 @@ export default function HomePage() {
     }
   }
 
-  // Pagination logic
   const indexOfLastProposal = currentPage * proposalsPerPage
   const indexOfFirstProposal = indexOfLastProposal - proposalsPerPage
   const currentProposals = proposals.slice(indexOfFirstProposal, indexOfLastProposal)
@@ -411,18 +343,8 @@ export default function HomePage() {
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
-  // Calculate totalVotes using useMemo to ensure it updates when proposals change
   const totalVotes = useMemo(() => {
     const calculated = proposals.reduce((acc, p) => acc + p.yesCount + p.noCount, 0)
-    console.log(`📊 Total votes calculated in useMemo: ${calculated}`, {
-      proposalsCount: proposals.length,
-      breakdown: proposals.map(p => ({
-        id: p.id,
-        yesCount: p.yesCount,
-        noCount: p.noCount,
-        total: p.yesCount + p.noCount
-      }))
-    })
     return calculated
   }, [proposals])
   
